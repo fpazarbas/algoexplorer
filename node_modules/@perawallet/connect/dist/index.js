@@ -1,0 +1,1 @@
+"use strict";Object.defineProperty(exports,"__esModule",{value:!0});var e=require("./index-87ee6d1d.js");require("@walletconnect/client"),require("algosdk"),require("bowser"),exports.PeraWalletConnect=e.PeraWalletConnect,exports.closePeraWalletSignTxnToast=e.closePeraWalletSignTxnToast;
