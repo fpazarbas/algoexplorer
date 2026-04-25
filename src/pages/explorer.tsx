@@ -6,6 +6,7 @@ import Button from '@/components/ui/button';
 import axios from 'axios';
 import { format, startOfYear, differenceInMonths, subYears, subMonths } from 'date-fns';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
+import Link from 'next/link';
 
 const mockChartData = [
   { time: '29 Mar', txs: 40000 },
@@ -17,6 +18,48 @@ const mockChartData = [
   { time: '04 Apr', txs: 80000 },
 ];
 
+const globalAssetCache: Record<number, { name: string, decimals: number }> = {};
+const fetchingAssets = new Set<number>();
+
+const globalNfdCache: Record<string, string> = {};
+const fetchingNfds = new Set<string>();
+
+const renderAddress = (address: string, nfdCache: Record<string, string>) => {
+  if (!address) return 'N/A...';
+  const nfd = nfdCache[address];
+  return nfd ? nfd : `${address.substring(0, 15)}...`;
+};
+
+const getTxTokenInfo = (tx: any, assetCache: Record<number, { name: string, decimals: number }>) => {
+  if (tx['tx-type'] === 'pay') {
+    return { amount: ((tx['payment-transaction']?.amount || 0) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 4 }), token: 'Algo', assetId: 0 };
+  } else if (tx['tx-type'] === 'axfer') {
+    const assetId = tx['asset-transfer-transaction']?.['asset-id'];
+    const cached = assetCache[assetId];
+    if (cached) {
+      const amount = tx['asset-transfer-transaction']?.amount || 0;
+      const formatted = cached.decimals > 0 ? (amount / Math.pow(10, cached.decimals)).toLocaleString(undefined, { maximumFractionDigits: cached.decimals }) : amount.toLocaleString();
+      return { amount: formatted, token: cached.name, assetId };
+    }
+    return { amount: (tx['asset-transfer-transaction']?.amount || 0).toLocaleString(), token: `ASA ${assetId}`, assetId };
+  } else if (tx['tx-type'] === 'appl') {
+    return { amount: 0, token: 'App Call', assetId: 0 };
+  }
+  return { amount: 0, token: tx['tx-type'] ? tx['tx-type'].toUpperCase() : 'Tx', assetId: 0 };
+};
+
+const getTxTypeLabel = (type: string) => {
+  switch (type) {
+    case 'pay': return 'Payment';
+    case 'axfer': return 'Asset Xfer';
+    case 'appl': return 'App Call';
+    case 'acfg': return 'Asset Config';
+    case 'afrz': return 'Asset Freeze';
+    case 'keyreg': return 'Key Reg';
+    default: return type ? type.toUpperCase() : 'UNKNOWN';
+  }
+};
+
 const ExplorerPage: NextPageWithLayout = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -24,6 +67,8 @@ const ExplorerPage: NextPageWithLayout = () => {
   const [error, setError] = useState('');
   const [searchType, setSearchType] = useState<'tx' | 'address'>('tx');
   const [recentTransactions, setRecentTransactions] = useState<any[]>([]);
+  const [assetCache, setAssetCache] = useState<Record<number, { name: string, decimals: number }>>(globalAssetCache);
+  const [nfdCache, setNfdCache] = useState<Record<string, string>>(globalNfdCache);
 
   const [globalStats, setGlobalStats] = useState({
     price: 0,
@@ -108,14 +153,14 @@ const ExplorerPage: NextPageWithLayout = () => {
             lastBlock: lastRound
           }));
 
-          // Fetch last 4 blocks for recent blocks list
-          const blocksToFetch = Array.from({length: 4}, (_, i) => lastRound - 3 + i);
+          // Fetch last 50 blocks for recent blocks list
+          const blocksToFetch = Array.from({length: 50}, (_, i) => lastRound - 49 + i);
           const blockPromises = blocksToFetch.map(round => 
              axios.get(`https://mainnet-api.algonode.cloud/v2/blocks/${round}`).catch(() => null)
           );
           const blocksRes = await Promise.all(blockPromises);
           
-          const recentBlocks = blocksRes.slice(-4).reverse().map(res => ({
+          const recentBlocks = blocksRes.slice(-50).reverse().map(res => ({
             round: res?.data?.block?.rnd,
             proposer: res?.data?.block?.proposeroffset ? 'Multiple' : (res?.data?.block?.earn ? 'Fee Sink' : 'Unknown'),
             txns: res?.data?.block?.txns?.length || 0,
@@ -202,6 +247,56 @@ const ExplorerPage: NextPageWithLayout = () => {
         if (txRes.data && txRes.data.transactions) {
           const sortedTxs = txRes.data.transactions.sort((a: any, b: any) => b['round-time'] - a['round-time']);
           setRecentTransactions(sortedTxs);
+
+          sortedTxs.forEach((tx: any) => {
+             if (tx['tx-type'] === 'axfer') {
+                const assetId = tx['asset-transfer-transaction']?.['asset-id'];
+                if (assetId && !globalAssetCache[assetId] && !fetchingAssets.has(assetId)) {
+                   fetchingAssets.add(assetId);
+                   axios.get(`https://mainnet-idx.algonode.cloud/v2/assets/${assetId}`).then(res => {
+                      const params = res.data?.asset?.params;
+                      if (params) {
+                         globalAssetCache[assetId] = { 
+                            name: params['unit-name'] || params.name || `ASA ${assetId}`, 
+                            decimals: params.decimals || 0 
+                         };
+                         setAssetCache({ ...globalAssetCache });
+                      }
+                   }).catch(() => {
+                      globalAssetCache[assetId] = { name: `ASA ${assetId}`, decimals: 0 };
+                      setAssetCache({ ...globalAssetCache });
+                   });
+                }
+             }
+          });
+
+          // Fetch NFDs for top transactions
+          const topTxs = sortedTxs.slice(0, 10);
+          const addressesToFetch = new Set<string>();
+          topTxs.forEach((tx: any) => {
+             const sender = tx.sender;
+             const receiver = tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver;
+             
+             if (sender && globalNfdCache[sender] === undefined && !fetchingNfds.has(sender)) addressesToFetch.add(sender);
+             if (receiver && globalNfdCache[receiver] === undefined && !fetchingNfds.has(receiver)) addressesToFetch.add(receiver);
+          });
+
+          if (addressesToFetch.size > 0) {
+             const url = `https://api.nf.domains/nfd/lookup?` + Array.from(addressesToFetch).map(a => `address=${a}`).join('&');
+             addressesToFetch.forEach(a => fetchingNfds.add(a));
+             axios.get(url).then(res => {
+                Object.keys(res.data).forEach(addr => {
+                   globalNfdCache[addr] = res.data[addr].name;
+                });
+                addressesToFetch.forEach(addr => {
+                   if (globalNfdCache[addr] === undefined) globalNfdCache[addr] = ''; 
+                });
+                setNfdCache({ ...globalNfdCache });
+             }).catch(() => {
+                addressesToFetch.forEach(addr => { globalNfdCache[addr] = ''; });
+                setNfdCache({ ...globalNfdCache });
+             });
+          }
         }
       } catch (e) {
         console.error("Failed to fetch recent transactions", e);
@@ -588,7 +683,7 @@ const formatNumber = (num: number) => {
               <h2 className="text-lg font-semibold text-gray-800 dark:text-white">Latest Blocks</h2>
               <button className="text-xs font-semibold text-[#1b72e8] border border-blue-200 bg-white dark:bg-[#111827] px-4 py-1.5 rounded-full hover:bg-blue-50 transition-colors">View all Blocks</button>
             </div>
-            <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm">
+            <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm max-h-[800px] overflow-y-auto">
               {globalStats.recentBlocks.map((block: any, i: number) => (
                 <div key={block.round || i} className="flex items-center p-4 py-5 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                   <div className="flex flex-col items-center justify-center w-16">
@@ -619,13 +714,13 @@ const formatNumber = (num: number) => {
               <h2 className="text-lg font-semibold text-gray-800 dark:text-white">Latest Transactions</h2>
               <button className="text-xs font-semibold text-[#1b72e8] border border-blue-200 bg-white dark:bg-[#111827] px-4 py-1.5 rounded-full hover:bg-blue-50 transition-colors">View all Transactions</button>
             </div>
-            <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm">
-              {recentTransactions.slice(0, 4).map((tx: any, i: number) => (
+            <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm max-h-[800px] overflow-y-auto">
+              {recentTransactions.slice(0, 50).map((tx: any, i: number) => (
                 <div key={tx.id || i} className="flex items-center p-4 py-5 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors relative">
                   
                   {/* Left sideways label */}
                   <div className="absolute left-0 top-0 bottom-0 w-8 border-r border-gray-100 dark:border-gray-800 flex items-center justify-center">
-                    <span className="text-[9px] text-gray-400 uppercase tracking-widest transform -rotate-90 origin-center whitespace-nowrap w-24 text-center">Transfer</span>
+                    <span className="text-[9px] text-gray-400 uppercase tracking-widest transform -rotate-90 origin-center whitespace-nowrap w-24 text-center">{getTxTypeLabel(tx['tx-type'])}</span>
                   </div>
 
                   <div className="flex flex-col items-center justify-center w-12 ml-8">
@@ -637,16 +732,37 @@ const formatNumber = (num: number) => {
                   
                   <div className="flex-1 ml-4 overflow-hidden">
                     <div className="flex justify-between items-center text-[13px] mb-1.5">
-                      <span className="text-gray-400 flex items-center gap-1">ID: <span className="text-[#1b72e8] truncate w-24 sm:w-32 inline-block align-bottom cursor-pointer hover:underline">{tx.id}</span></span>
+                      <span className="text-gray-400 flex items-center gap-1">ID: 
+                         <Link href={`/tx/${tx.id}`} className="text-[#1b72e8] truncate w-32 sm:w-48 lg:w-64 inline-block align-bottom cursor-pointer hover:underline">
+                            {tx.id}
+                         </Link>
+                      </span>
                       <span className="text-[#3fc15d] text-xs flex items-center gap-1 font-medium bg-green-50 dark:bg-green-900/20 px-2 py-0.5 rounded">
                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                         0 Planets
+                         {getTxTokenInfo(tx, assetCache).amount}{' '}
+                         {getTxTokenInfo(tx, assetCache).assetId > 0 ? (
+                            <Link href={`/asset/${getTxTokenInfo(tx, assetCache).assetId}`} className="hover:underline hover:text-[#1b72e8]">
+                               {getTxTokenInfo(tx, assetCache).token}
+                            </Link>
+                         ) : (
+                            getTxTokenInfo(tx, assetCache).token
+                         )}
                       </span>
                     </div>
                     <div className="flex justify-between items-center text-[13px]">
                        <div className="flex gap-4 text-gray-400">
-                          <div className="truncate w-24 sm:w-32">From: <span className="text-gray-600 dark:text-gray-300">{tx.sender.substring(0, 15)}...</span></div>
-                          <div className="truncate w-24 sm:w-32">To: <span className="text-gray-600 dark:text-gray-300">{tx['payment-transaction']?.receiver?.substring(0, 15) || 'N/A'}...</span></div>
+                          <div className="truncate w-24 sm:w-32">
+                             From:{' '}
+                             <Link href={`/address/${tx.sender}`} className="text-gray-600 dark:text-gray-300 hover:text-[#1b72e8] dark:hover:text-[#1b72e8] hover:underline" title={tx.sender}>
+                                {renderAddress(tx.sender, nfdCache)}
+                             </Link>
+                          </div>
+                          <div className="truncate w-24 sm:w-32">
+                             To:{' '}
+                             <Link href={`/address/${tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver}`} className="text-gray-600 dark:text-gray-300 hover:text-[#1b72e8] dark:hover:text-[#1b72e8] hover:underline" title={tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver}>
+                                {renderAddress(tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver, nfdCache)}
+                             </Link>
+                          </div>
                        </div>
                        <div className="text-gray-500 font-medium">
                           Fee: <span className="text-gray-800 dark:text-gray-200 font-bold ml-1">₳ {(tx.fee / 1e6).toFixed(3)}</span>
