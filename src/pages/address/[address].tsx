@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useRouter } from 'next/router';
 import type { NextPageWithLayout } from '@/types';
 import { NextSeo } from 'next-seo';
@@ -37,6 +37,8 @@ const getTxTokenInfo = (tx: any, assetCache: Record<number, { name: string, deci
   return { amount: 0, token: tx['tx-type'] ? tx['tx-type'].toUpperCase() : 'Tx', assetId: 0 };
 };
 
+const PAGE_SIZE = 20;
+
 const AddressDetailPage: NextPageWithLayout = () => {
   const router = useRouter();
   const { address } = router.query;
@@ -45,9 +47,66 @@ const AddressDetailPage: NextPageWithLayout = () => {
   const [account, setAccount] = useState<any>(null);
   const [transactions, setTransactions] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [txLoading, setTxLoading] = useState(false);
   const [error, setError] = useState('');
   const [nfdName, setNfdName] = useState<string | null>(null);
   const [assetCache, setAssetCache] = useState<Record<number, { name: string, decimals: number }>>({});
+  const [createdAtRound, setCreatedAtRound] = useState<number | null>(null);
+  const [createdDate, setCreatedDate] = useState<string | null>(null);
+  
+  // Pagination state
+  const [nextToken, setNextToken] = useState<string | null>(null);
+  const [pageHistory, setPageHistory] = useState<string[]>([]); // stores next-tokens for previous pages
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const fetchAssetCacheForTxs = useCallback(async (txs: any[]) => {
+    const assetIds = new Set<number>();
+    txs.forEach((tx: any) => {
+      if (tx['tx-type'] === 'axfer') {
+        const aid = tx['asset-transfer-transaction']?.['asset-id'];
+        if (aid) assetIds.add(aid);
+      }
+    });
+
+    const newCache: Record<number, {name: string, decimals: number}> = {};
+    const promises = Array.from(assetIds)
+      .filter(aid => !assetCache[aid])
+      .map(aid => 
+        axios.get(`https://mainnet-idx.algonode.cloud/v2/assets/${aid}`).then(res => {
+          const params = res.data?.asset?.params;
+          if (params) {
+            newCache[aid] = {
+              name: params['unit-name'] || params.name || `ASA ${aid}`,
+              decimals: params.decimals || 0
+            };
+          }
+        }).catch(() => {})
+      );
+    
+    await Promise.all(promises);
+    if (Object.keys(newCache).length > 0) {
+      setAssetCache(prev => ({ ...prev, ...newCache }));
+    }
+  }, [assetCache]);
+
+  const fetchTransactions = useCallback(async (addr: string, token?: string) => {
+    setTxLoading(true);
+    try {
+      let url = `https://mainnet-idx.algonode.cloud/v2/accounts/${addr}/transactions?limit=${PAGE_SIZE}`;
+      if (token) url += `&next=${token}`;
+      
+      const txRes = await axios.get(url);
+      const txs = txRes.data.transactions || [];
+      setTransactions(txs);
+      setNextToken(txRes.data['next-token'] || null);
+      
+      await fetchAssetCacheForTxs(txs);
+    } catch (err) {
+      console.error('Failed to fetch transactions', err);
+    } finally {
+      setTxLoading(false);
+    }
+  }, [fetchAssetCacheForTxs]);
 
   useEffect(() => {
     if (!isReady || !address || typeof address !== 'string') return;
@@ -55,15 +114,33 @@ const AddressDetailPage: NextPageWithLayout = () => {
     const fetchData = async () => {
       setLoading(true);
       setError('');
+      setPageHistory([]);
+      setCurrentPage(1);
+      setNextToken(null);
+      
       try {
         // Fetch Account Info
         const accRes = await axios.get(`https://mainnet-idx.algonode.cloud/v2/accounts/${address}`);
-        setAccount(accRes.data.account);
+        const acc = accRes.data.account;
+        setAccount(acc);
+        setCreatedAtRound(acc['created-at-round'] || null);
         
-        // Fetch Transactions
-        const txRes = await axios.get(`https://mainnet-idx.algonode.cloud/v2/accounts/${address}/transactions?limit=20`);
+        // Fetch block timestamp for created-at-round
+        if (acc['created-at-round']) {
+           axios.get(`https://mainnet-idx.algonode.cloud/v2/blocks/${acc['created-at-round']}`)
+             .then(blockRes => {
+                const ts = blockRes.data?.timestamp;
+                if (ts) {
+                   setCreatedDate(format(new Date(ts * 1000), 'MMM dd, yyyy HH:mm'));
+                }
+             }).catch(() => {});
+        }
+        
+        // Fetch first page of Transactions
+        const txRes = await axios.get(`https://mainnet-idx.algonode.cloud/v2/accounts/${address}/transactions?limit=${PAGE_SIZE}`);
         const txs = txRes.data.transactions || [];
         setTransactions(txs);
+        setNextToken(txRes.data['next-token'] || null);
 
         // Fetch NFD
         axios.get(`https://api.nf.domains/nfd/lookup?address=${address}`)
@@ -73,17 +150,8 @@ const AddressDetailPage: NextPageWithLayout = () => {
              }
           }).catch(() => {});
 
-        // Build Asset Cache for TXs and Balances
+        // Build Asset Cache for TXs
         const assetIds = new Set<number>();
-        
-        // Collect from balances
-        if (accRes.data.account.assets) {
-           accRes.data.account.assets.forEach((a: any) => {
-              if (a.amount > 0) assetIds.add(a['asset-id']);
-           });
-        }
-        
-        // Collect from txs
         txs.forEach((tx: any) => {
            if (tx['tx-type'] === 'axfer') {
               const aid = tx['asset-transfer-transaction']?.['asset-id'];
@@ -91,7 +159,6 @@ const AddressDetailPage: NextPageWithLayout = () => {
            }
         });
 
-        // Fetch unknown assets
         const newCache: Record<number, {name: string, decimals: number}> = {};
         const promises = Array.from(assetIds).map(aid => 
            axios.get(`https://mainnet-idx.algonode.cloud/v2/assets/${aid}`).then(res => {
@@ -105,9 +172,8 @@ const AddressDetailPage: NextPageWithLayout = () => {
            }).catch(() => {})
         );
         
-        Promise.all(promises).then(() => {
-           setAssetCache(newCache);
-        });
+        await Promise.all(promises);
+        setAssetCache(newCache);
         
       } catch (err: any) {
         setError(err.response?.data?.message || 'Account not found.');
@@ -118,6 +184,28 @@ const AddressDetailPage: NextPageWithLayout = () => {
     
     fetchData();
   }, [address, isReady]);
+
+  const handleNextPage = async () => {
+    if (!nextToken || !address || typeof address !== 'string') return;
+    
+    // Save current next-token so we can come back
+    setPageHistory(prev => [...prev, nextToken]);
+    setCurrentPage(prev => prev + 1);
+    await fetchTransactions(address, nextToken);
+  };
+
+  const handlePrevPage = async () => {
+    if (pageHistory.length === 0 || !address || typeof address !== 'string') return;
+    
+    const newHistory = [...pageHistory];
+    newHistory.pop(); // remove current page's token
+    setPageHistory(newHistory);
+    setCurrentPage(prev => prev - 1);
+    
+    // If going back to page 1, fetch without token
+    const prevToken = newHistory.length > 0 ? newHistory[newHistory.length - 1] : undefined;
+    await fetchTransactions(address, prevToken);
+  };
 
   const safeAddress = typeof address === 'string' ? address : '';
 
@@ -168,85 +256,98 @@ const AddressDetailPage: NextPageWithLayout = () => {
                 </div>
              </div>
 
-             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Left Col: ASA Balances */}
-                <div className="lg:col-span-1">
-                   <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">Asset Balances</h2>
-                   <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm max-h-[600px] overflow-y-auto">
-                      {account.assets && account.assets.filter((a: any) => a.amount > 0).length > 0 ? (
-                         account.assets.filter((a: any) => a.amount > 0).map((a: any) => {
-                            const cached = assetCache[a['asset-id']];
-                            const name = cached ? cached.name : `ASA ${a['asset-id']}`;
-                            const amount = cached && cached.decimals > 0 ? (a.amount / Math.pow(10, cached.decimals)).toLocaleString(undefined, { maximumFractionDigits: cached.decimals }) : a.amount.toLocaleString();
-                            return (
-                               <div key={a['asset-id']} className="flex justify-between items-center p-4 py-3 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
-                                  <Link href={`/asset/${a['asset-id']}`} className="text-[#1b72e8] hover:underline flex items-center gap-2">
-                                     <img src={`https://asa-list.tinyman.org/assets/${a['asset-id']}/icon.png`} alt="" className="w-5 h-5 rounded-full bg-gray-100 dark:bg-gray-800 border border-gray-200 dark:border-gray-700" onError={(e) => e.currentTarget.style.display = 'none'} />
-                                     {name}
-                                  </Link>
-                                  <span className="text-gray-800 dark:text-gray-200 font-medium">{amount}</span>
-                               </div>
-                            );
-                         })
-                      ) : (
-                         <div className="p-6 text-center text-gray-500 text-sm">No assets found.</div>
-                      )}
-                   </div>
+             {/* Info Row */}
+             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm p-4">
+                   <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Created at Round</div>
+                   <div className="text-gray-800 dark:text-white font-medium">{createdAtRound ? createdAtRound.toLocaleString() : 'N/A'}</div>
                 </div>
+                <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm p-4">
+                   <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Created Date</div>
+                   <div className="text-gray-800 dark:text-white font-medium">{createdDate || 'Loading...'}</div>
+                </div>
+                <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm p-4">
+                   <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Status</div>
+                   <div className={`font-medium ${account.status === 'Online' ? 'text-[#3fc15d]' : 'text-gray-500'}`}>{account.status || 'Unknown'}</div>
+                </div>
+                <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm p-4">
+                   <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Min Balance</div>
+                   <div className="text-gray-800 dark:text-white font-medium">₳ {((account['min-balance'] || 0) / 1e6).toLocaleString()}</div>
+                </div>
+                <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm p-4">
+                   <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Total Rewards</div>
+                   <div className="text-gray-800 dark:text-white font-medium">₳ {((account.rewards || 0) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 4})}</div>
+                </div>
+             </div>
 
-                {/* Right Col: Transactions */}
-                <div className="lg:col-span-2">
-                   <h2 className="text-lg font-semibold text-gray-800 dark:text-white mb-3">Recent Transactions</h2>
-                   <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm max-h-[600px] overflow-y-auto">
-                      {transactions.length > 0 ? transactions.map((tx: any, i: number) => (
-                         <div key={tx.id || i} className="flex items-center p-4 py-4 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors relative">
-                            {/* Left sideways label */}
-                            <div className="absolute left-0 top-0 bottom-0 w-8 border-r border-gray-100 dark:border-gray-800 flex items-center justify-center">
-                              <span className="text-[9px] text-gray-400 uppercase tracking-widest transform -rotate-90 origin-center whitespace-nowrap w-20 text-center">{getTxTypeLabel(tx['tx-type'])}</span>
-                            </div>
+             {/* Transactions */}
+             <div>
+                <div className="flex items-center justify-between mb-3">
+                   <h2 className="text-lg font-semibold text-gray-800 dark:text-white">Transactions</h2>
+                   <span className="text-sm text-gray-500">Page {currentPage}</span>
+                </div>
+                <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm">
+                   {txLoading && (
+                      <div className="p-8 text-center text-gray-500">Loading transactions...</div>
+                   )}
+                   {!txLoading && transactions.length > 0 && transactions.map((tx: any, i: number) => (
+                      <div key={tx.id || i} className="flex items-center px-4 py-2.5 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
+                         <span className="text-[10px] text-gray-400 w-16 shrink-0">{tx['round-time'] ? format(new Date(tx['round-time'] * 1000), 'MMM dd') : 'N/A'}</span>
+                         
+                         <span className="text-[11px] text-gray-400 uppercase tracking-wider w-20 shrink-0 font-medium">{getTxTypeLabel(tx['tx-type']).substring(0, 10)}</span>
 
-                            <div className="flex flex-col items-center justify-center w-12 ml-8">
-                               <div className="bg-[#1b72e8] rounded-full p-1 text-white">
-                                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="13 17 18 12 13 7"></polyline><line x1="6" y1="12" x2="18" y2="12"></line></svg>
-                               </div>
-                               <span className="text-[10px] text-blue-400 mt-1">{tx['round-time'] ? format(new Date(tx['round-time'] * 1000), 'MMM dd') : 'N/A'}</span>
-                            </div>
-                            
-                            <div className="flex-1 ml-4 overflow-hidden">
-                              <div className="flex justify-between items-center text-[13px] mb-1.5">
-                                <span className="text-gray-400 flex items-center gap-1">ID: 
-                                   <Link href={`/tx/${tx.id}`} className="text-[#1b72e8] truncate w-24 sm:w-32 lg:w-48 inline-block align-bottom cursor-pointer hover:underline">
-                                      {tx.id}
-                                   </Link>
-                                </span>
-                                <span className={`text-xs flex items-center gap-1 font-medium px-2 py-0.5 rounded ${tx.sender === address ? 'bg-red-50 text-red-500 dark:bg-red-900/20 dark:text-red-400' : 'bg-green-50 text-[#3fc15d] dark:bg-green-900/20'}`}>
-                                   <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path><circle cx="12" cy="12" r="3"></circle></svg>
-                                   {tx.sender === address ? '-' : '+'}{getTxTokenInfo(tx, assetCache).amount}{' '}
-                                   {getTxTokenInfo(tx, assetCache).assetId > 0 ? (
-                                      <Link href={`/asset/${getTxTokenInfo(tx, assetCache).assetId}`} className="hover:underline">
-                                         {getTxTokenInfo(tx, assetCache).token}
-                                      </Link>
-                                   ) : (
-                                      getTxTokenInfo(tx, assetCache).token
-                                   )}
-                                </span>
-                              </div>
-                              <div className="flex justify-between items-center text-[13px]">
-                                 <div className="flex gap-4 text-gray-400">
-                                    <div className="truncate w-24 sm:w-32">From: <Link href={`/address/${tx.sender}`} className="text-[#1b72e8] hover:underline">{tx.sender === address ? 'This Account' : `${tx.sender.substring(0, 10)}...`}</Link></div>
-                                    {tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver ? (
-                                       <div className="truncate w-24 sm:w-32">To: <Link href={`/address/${tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver}`} className="text-[#1b72e8] hover:underline">{tx['payment-transaction']?.receiver === address || tx['asset-transfer-transaction']?.receiver === address ? 'This Account' : `${(tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver).substring(0, 10)}...`}</Link></div>
-                                    ) : (
-                                       <div className="truncate w-24 sm:w-32">To: N/A</div>
-                                    )}
-                                 </div>
-                              </div>
-                            </div>
-                         </div>
-                      )) : (
-                         <div className="p-8 text-center text-gray-500 text-sm">No transactions found.</div>
-                      )}
-                   </div>
+                         <Link href={`/tx/${tx.id}`} className="text-[#1b72e8] truncate w-32 sm:w-48 lg:w-64 text-[13px] cursor-pointer hover:underline shrink-0">
+                            {tx.id}
+                         </Link>
+                         
+                         <div className="flex-1" />
+
+                         <span className={`text-xs flex items-center gap-1 font-medium px-2 py-0.5 rounded shrink-0 ${tx.sender === address ? 'bg-red-50 text-red-500 dark:bg-red-900/20 dark:text-red-400' : 'bg-green-50 text-[#3fc15d] dark:bg-green-900/20'}`}>
+                            {tx.sender === address ? '-' : '+'}{getTxTokenInfo(tx, assetCache).amount}{' '}
+                            {getTxTokenInfo(tx, assetCache).assetId > 0 ? (
+                               <Link href={`/asset/${getTxTokenInfo(tx, assetCache).assetId}`} className="hover:underline">
+                                  {getTxTokenInfo(tx, assetCache).token}
+                               </Link>
+                            ) : (
+                               getTxTokenInfo(tx, assetCache).token
+                            )}
+                         </span>
+                      </div>
+                   ))}
+                   {!txLoading && transactions.length === 0 && (
+                      <div className="p-8 text-center text-gray-500 text-sm">No transactions found.</div>
+                   )}
+
+                   {/* Pagination Controls */}
+                   {!txLoading && transactions.length > 0 && (
+                      <div className="flex items-center justify-between p-4 border-t border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-800/20">
+                         <button
+                            onClick={handlePrevPage}
+                            disabled={currentPage <= 1}
+                            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-sm border transition-colors ${
+                               currentPage <= 1
+                                  ? 'text-gray-300 dark:text-gray-600 border-gray-200 dark:border-gray-800 cursor-not-allowed'
+                                  : 'text-[#1b72e8] border-[#1b72e8]/30 hover:bg-[#1b72e8]/10 cursor-pointer'
+                            }`}
+                         >
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="15 18 9 12 15 6"></polyline></svg>
+                            Previous
+                         </button>
+                         <span className="text-sm text-gray-500 font-medium">Page {currentPage}</span>
+                         <button
+                            onClick={handleNextPage}
+                            disabled={!nextToken}
+                            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-sm border transition-colors ${
+                               !nextToken
+                                  ? 'text-gray-300 dark:text-gray-600 border-gray-200 dark:border-gray-800 cursor-not-allowed'
+                                  : 'text-[#1b72e8] border-[#1b72e8]/30 hover:bg-[#1b72e8]/10 cursor-pointer'
+                            }`}
+                         >
+                            Next
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="9 18 15 12 9 6"></polyline></svg>
+                         </button>
+                      </div>
+                   )}
                 </div>
              </div>
           </div>
