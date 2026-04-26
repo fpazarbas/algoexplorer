@@ -115,12 +115,19 @@ const ExplorerPage: NextPageWithLayout = () => {
         
         let currentPrice = 0;
         let priceChange = 0;
-        const circulatingSupply = 8245000000;
-        
+        let circulatingSupply = 0;
+        let volume24h = 0;
+        let ath = 0;
+
+        // Algonode ledger/supply gives total-money (all existing ALGO in microalgos)
+        if (supplyRes?.data?.['total-money']) {
+          circulatingSupply = supplyRes.data['total-money'] / 1e6;
+        }
+
         try {
           const [binanceRes, cgRes, coinbaseRes, vestigeRes] = await Promise.allSettled([
             axios.get('https://api.binance.com/api/v3/ticker/price?symbol=ALGOUSDT', { timeout: 2500 }),
-            axios.get('https://api.coingecko.com/api/v3/simple/price?ids=algorand&vs_currencies=usd&include_24hr_change=true', { timeout: 2500 }),
+            axios.get('https://api.coingecko.com/api/v3/coins/algorand?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false', { timeout: 4000 }),
             axios.get('https://api.coinbase.com/v2/prices/ALGO-USD/spot', { timeout: 2500 }),
             axios.get('https://free-api.vestige.fi/currency/USD/prices/simple/7D', { timeout: 2500 })
           ]);
@@ -128,30 +135,35 @@ const ExplorerPage: NextPageWithLayout = () => {
           if (binanceRes.status === 'fulfilled' && binanceRes.value?.data?.price) {
             const parsedPrice = parseFloat(binanceRes.value.data.price);
             if (!isNaN(parsedPrice)) currentPrice = parsedPrice;
-          } else if (cgRes.status === 'fulfilled' && cgRes.value?.data?.algorand?.usd) {
-            currentPrice = cgRes.value.data.algorand.usd;
-            priceChange = cgRes.value.data.algorand.usd_24h_change || priceChange;
           } else if (coinbaseRes.status === 'fulfilled' && coinbaseRes.value?.data?.data?.amount) {
             const parsedPrice = parseFloat(coinbaseRes.value.data.data.amount);
             if (!isNaN(parsedPrice)) currentPrice = parsedPrice;
           } else if (vestigeRes.status === 'fulfilled' && Array.isArray(vestigeRes.value?.data) && vestigeRes.value.data.length > 0) {
             const lastItem = vestigeRes.value.data[vestigeRes.value.data.length - 1];
-            if (lastItem && lastItem.price) {
-              currentPrice = lastItem.price;
-            }
+            if (lastItem?.price) currentPrice = lastItem.price;
+          }
+
+          if (cgRes.status === 'fulfilled' && cgRes.value?.data?.market_data) {
+            const md = cgRes.value.data.market_data;
+            if (currentPrice === 0 && md.current_price?.usd) currentPrice = md.current_price.usd;
+            if (md.price_change_percentage_24h) priceChange = md.price_change_percentage_24h;
+            if (md.circulating_supply) circulatingSupply = md.circulating_supply;
+            if (md.total_volume?.usd) volume24h = md.total_volume.usd;
+            if (md.ath?.usd) ath = md.ath.usd;
           }
         } catch (e) {}
 
         setGlobalStats(prev => {
           const finalPrice = (currentPrice === 0 && prev.price && prev.price !== 0) ? prev.price : currentPrice;
+          const finalCirc = circulatingSupply > 0 ? circulatingSupply : prev.circulatingSupply;
           return {
             ...prev,
             price: finalPrice,
             priceChange: (priceChange === 0 && prev.priceChange !== 0) ? prev.priceChange : priceChange,
-            marketCap: finalPrice * circulatingSupply,
-            circulatingSupply: circulatingSupply,
-            volume24h: 42500000, 
-            ath: 3.28,
+            marketCap: finalPrice * finalCirc,
+            circulatingSupply: finalCirc,
+            volume24h: volume24h > 0 ? volume24h : prev.volume24h,
+            ath: ath > 0 ? ath : prev.ath,
             onlineStake: supplyRes?.data?.['online-stake'] ? supplyRes.data['online-stake'] / 1e6 : prev.onlineStake,
             algoBtc: btcRes?.data?.price ? parseFloat(btcRes.data.price) : prev.algoBtc
           };
@@ -371,7 +383,7 @@ const ExplorerPage: NextPageWithLayout = () => {
             ...prev,
             ...(fallbackPrice !== null && { price: fallbackPrice }),
             ...(fallbackChange !== null && { priceChange: fallbackChange }),
-            ...(fallbackPrice !== null && { marketCap: fallbackPrice * 8245000000 })
+            ...(fallbackPrice !== null && { marketCap: fallbackPrice * (prev.circulatingSupply || 0) })
           };
         });
       } catch (e) {}
@@ -396,10 +408,7 @@ const ExplorerPage: NextPageWithLayout = () => {
                   ...prev,
                   price: livePrice,
                   priceChange: isNaN(liveChange) ? prev.priceChange : liveChange,
-                  marketCap: livePrice * 8245000000,
-                  circulatingSupply: 8245000000,
-                  volume24h: 42500000,
-                  ath: 3.28
+                  marketCap: livePrice * (prev.circulatingSupply || 0)
                 }));
               }
             }
@@ -554,25 +563,41 @@ const formatNumber = (num: number) => {
       <div className="mx-auto max-w-[1400px] w-full p-4 sm:p-6 lg:p-8">
         
         {/* TOP STATS ROW */}
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
+        <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-4 gap-4 mb-6">
           <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 p-5 shadow-sm rounded-sm">
             <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider">Latest Block</div>
             <div className="text-3xl font-light text-gray-800 dark:text-white text-center tracking-tight">{globalStats.lastBlock ? globalStats.lastBlock.toLocaleString() : '...'}</div>
           </div>
-          <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 p-5 shadow-sm rounded-sm">
-            <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Circulating Supply <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
-            <div className="text-2xl font-light text-gray-800 dark:text-white text-center flex items-center justify-center gap-1">
-              {globalStats.circulatingSupply ? formatNumber(globalStats.circulatingSupply) : '...'} <AlgoIcon />
+          <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 p-5 shadow-sm rounded-sm col-span-2">
+            <div className="text-gray-500 text-[11px] font-semibold mb-3 uppercase tracking-wider flex items-center justify-between">
+              Supply
+            </div>
+            <div className="flex items-end justify-between mb-2">
+              <div>
+                <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Circulating</div>
+                <div className="text-xl font-light text-gray-800 dark:text-white flex items-center gap-1">
+                  {globalStats.circulatingSupply ? formatNumber(globalStats.circulatingSupply) : '...'} <AlgoIcon />
+                </div>
+              </div>
+              <div className="text-right">
+                <div className="text-[10px] text-gray-500 uppercase tracking-wider mb-0.5">Total</div>
+                <div className="text-xl font-light text-gray-800 dark:text-white flex items-center gap-1 justify-end">
+                  10B <AlgoIcon />
+                </div>
+              </div>
+            </div>
+            <div className="w-full bg-gray-200 dark:bg-gray-700 rounded-full h-1.5 mt-3">
+              <div
+                className="bg-blue-500 h-1.5 rounded-full transition-all duration-700"
+                style={{ width: `${globalStats.circulatingSupply ? Math.min((globalStats.circulatingSupply / 10_000_000_000) * 100, 100).toFixed(1) : 0}%` }}
+              />
+            </div>
+            <div className="text-[10px] text-gray-400 mt-1 text-right">
+              {globalStats.circulatingSupply ? ((globalStats.circulatingSupply / 10_000_000_000) * 100).toFixed(1) : '0'}% in circulation
             </div>
           </div>
           <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 p-5 shadow-sm rounded-sm">
-            <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Total Supply <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
-            <div className="text-2xl font-light text-gray-800 dark:text-white text-center flex items-center justify-center gap-1">
-              10,000,000,000 <AlgoIcon />
-            </div>
-          </div>
-          <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 p-5 shadow-sm rounded-sm">
-            <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Online Stake <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
+            <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Online Stake</div>
             <div className="text-2xl font-light text-gray-800 dark:text-white text-center flex items-center justify-center gap-1">
               {globalStats.onlineStake ? globalStats.onlineStake.toLocaleString() : '1,866,678,541.31'} <AlgoIcon />
             </div>
@@ -605,28 +630,28 @@ const formatNumber = (num: number) => {
           <div className="lg:col-span-3 p-6 border-b lg:border-b-0 lg:border-r border-gray-200 dark:border-gray-800 flex flex-col justify-center">
             <div className="grid grid-cols-2 gap-y-10 gap-x-6">
               <div>
-                <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Block Speed <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
+                <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Block Speed</div>
                 <div className="text-xl font-light text-gray-800 dark:text-white flex items-center gap-3">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1b72e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
                   {globalStats.blockSpeed} sec
                 </div>
               </div>
               <div>
-                <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">TPS <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
+                <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">TPS</div>
                 <div className="text-xl font-light text-gray-800 dark:text-white flex items-center gap-3">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1b72e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="13 17 18 12 13 7"></polyline><polyline points="6 17 11 12 6 7"></polyline></svg>
                   {globalStats.tps > 0 ? globalStats.tps.toFixed(1) : '...'}
                 </div>
               </div>
               <div>
-                 <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Tx Cost <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
+                 <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Tx Cost</div>
                  <div className="text-xl font-light text-gray-800 dark:text-white flex items-center gap-3">
                   <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#1b72e8" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><line x1="17" y1="3" x2="17" y2="21"></line><path d="M13 17l4 4 4-4"></path><line x1="7" y1="21" x2="7" y2="3"></line><path d="M11 7L7 3 3 7"></path></svg>
                   ${globalStats.price ? (0.001 * globalStats.price).toFixed(5) : '0.00089'}
                 </div>
               </div>
               <div>
-                <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Accounts <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
+                <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Accounts</div>
                 <div className="text-xl font-light text-gray-800 dark:text-white flex items-center gap-3">
                   <span className="text-[#1b72e8] font-bold bg-blue-50 dark:bg-blue-900/20 px-2 py-0.5 rounded text-sm">A</span> 
                   {globalStats.accounts.toLocaleString()}
