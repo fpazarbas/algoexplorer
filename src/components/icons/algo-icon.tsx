@@ -1,0 +1,19 @@
+import React from 'react';
+
+export function AlgoIcon(props: React.SVGAttributes<{}>) {
+  return (
+    <svg
+      viewBox="0 0 36 36"
+      fill="none"
+      xmlns="http://www.w3.org/2000/svg"
+      className="inline-block"
+      style={{ width: '0.85em', height: '0.85em', verticalAlign: '-0.1em' }}
+      {...props}
+    >
+      <path
+        d="M36 35.994H30.3559L26.6904 22.3794L18.8095 35.9955H12.5085L24.6892 14.9191L22.7288 7.60204L6.30408 36H0L20.8152 0H26.3339L28.7505 8.94421H34.4444L30.5568 15.6942L36 35.994Z"
+        fill="currentColor"
+      />
+    </svg>
+  );
+}

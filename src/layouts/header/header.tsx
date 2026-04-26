@@ -14,6 +14,7 @@ const navLinks = [
   { name: 'Statistics', href: '#' },
   { name: 'Blockchain', href: '#' },
   { name: 'Tools', href: '#' },
+  { name: 'DeFi', href: '#' },
   { name: 'Developer API', href: '#' },
   { name: 'Governance', href: '#' },
 ];
@@ -31,9 +32,9 @@ export default function Header({ className }: { className?: string }) {
         className
       )}
     >
-      {/* Top Row */}
-      <div className="flex h-16 sm:h-20 items-center justify-between px-4 sm:px-6 lg:px-8 border-b border-gray-100 dark:border-gray-800">
-        <div className="flex items-center justify-between w-full relative">
+      {/* Main Header Row */}
+      <div className="flex h-16 sm:h-20 items-center px-4 sm:px-6 lg:px-8 border-b border-gray-100 dark:border-gray-800">
+        <div className="flex items-center w-full gap-4 lg:gap-8">
           
           {/* Logo */}
           <div
@@ -41,25 +42,39 @@ export default function Header({ className }: { className?: string }) {
             className="flex flex-col cursor-pointer shrink-0"
           >
             <span className="text-2xl font-bold text-[#1b72e8] dark:text-blue-400 leading-none">euro.algo</span>
-            <span className="text-[10px] text-gray-500 font-medium tracking-wide">Algorand Blockchain Explorer</span>
+            <span className="text-[10px] text-gray-500 font-medium tracking-wide hidden lg:block">Algorand Blockchain Explorer</span>
           </div>
 
-          {/* Search Bar */}
-          <div className="hidden md:flex absolute left-1/2 -translate-x-1/2 w-[45%] max-w-3xl items-center">
+          {/* Search Bar — expands to fill space between nav links and right controls */}
+          <div className="hidden md:flex flex-1 items-center ml-2">
             <div className="relative w-full flex items-center">
               <input 
                 type="text" 
-                placeholder="Search by Address / Tx ID / Group Tx ID / Block / Asset Name / Asset ID / App ID" 
+                placeholder="Search by Address / Tx ID..." 
                 className="w-full h-10 px-4 rounded-l-md border border-gray-200 bg-gray-50 text-sm focus:outline-none focus:ring-1 focus:ring-[#1b72e8] focus:border-[#1b72e8] dark:bg-dark dark:border-gray-700"
               />
-              <button className="h-10 px-6 bg-[#1b72e8] hover:bg-blue-600 text-white rounded-r-md transition-colors flex items-center justify-center">
+              <button className="h-10 px-4 bg-[#1b72e8] hover:bg-blue-600 text-white rounded-r-md transition-colors flex items-center justify-center">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"></circle><line x1="21" y1="21" x2="16.65" y2="16.65"></line></svg>
               </button>
             </div>
           </div>
 
+          {/* Navigation Links */}
+          <ul className="hidden xl:flex shrink-0 items-center gap-4 2xl:gap-6 text-[13px] font-medium text-gray-600 dark:text-gray-300">
+            {navLinks.slice(0, 6).map((link) => (
+              <li key={link.name}>
+                <a href={link.href} className="hover:text-[#1b72e8] transition-colors flex items-center gap-1 cursor-pointer whitespace-nowrap">
+                  {link.name}
+                  {['Statistics', 'Blockchain', 'Tools'].includes(link.name) && (
+                    <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                  )}
+                </a>
+              </li>
+            ))}
+          </ul>
+
           {/* Right Area */}
-          <div className="flex shrink-0 items-center gap-3 sm:gap-4">
+          <div className="flex shrink-0 items-center gap-3 ml-auto">
             <div className="hidden sm:flex px-3 py-1.5 border border-blue-200 text-[#1b72e8] rounded text-xs font-semibold bg-blue-50/50 cursor-pointer hover:bg-blue-50 dark:bg-blue-900/20 dark:border-blue-800 dark:text-blue-300">
               MAINNET ▾
             </div>
@@ -83,22 +98,6 @@ export default function Header({ className }: { className?: string }) {
             )}
           </div>
         </div>
-      </div>
-
-      {/* Bottom Row (Navigation) */}
-      <div className="hidden md:flex h-12 items-center justify-center px-4 sm:px-6 lg:px-8 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-light-dark shadow-sm">
-        <ul className="flex items-center justify-center gap-6 lg:gap-10 text-sm font-medium text-gray-600 dark:text-gray-300">
-          {navLinks.map((link) => (
-            <li key={link.name}>
-              <a href={link.href} className="hover:text-[#1b72e8] transition-colors flex items-center gap-1 cursor-pointer">
-                {link.name}
-                {['Statistics', 'Blockchain', 'Tools', 'Developer API'].includes(link.name) && (
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="opacity-50"><polyline points="6 9 12 15 18 9"></polyline></svg>
-                )}
-              </a>
-            </li>
-          ))}
-        </ul>
       </div>
     </nav>
   );

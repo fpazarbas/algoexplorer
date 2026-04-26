@@ -126,15 +126,53 @@ Styles for Swiper slider
 }
 
 ::-webkit-scrollbar {
-  width: 10px;
+  display: none;
 }
-::-webkit-scrollbar-track {
-  background: rgb(214, 214, 214);
+* {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
 }
-::-webkit-scrollbar-thumb {
-  background: rgb(var(--color-brand));
-  border-radius: 0px;
+
+.screen-aura {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  pointer-events: none;
+  z-index: 9999;
+  transition: all 1s ease;
 }
-::-webkit-scrollbar-thumb:hover {
-  background: rgb(var(--color-brand));
+
+.screen-aura-animated {
+  box-shadow: inset 0 0 120px rgba(0, 163, 255, 0.3),
+              inset 0 0 250px rgba(0, 163, 255, 0.1);
+  animation: aura-pulse 2s infinite ease-in-out;
+}
+
+.screen-aura-static {
+  box-shadow: inset 0 0 80px rgba(0, 163, 255, 0.15),
+              inset 0 0 150px rgba(0, 163, 255, 0.05);
+  opacity: 0.8;
+}
+
+@keyframes aura-pulse {
+  0%, 100% {
+    opacity: 0.5;
+    box-shadow: inset 0 0 80px rgba(0, 163, 255, 0.2),
+                inset 0 0 150px rgba(0, 163, 255, 0.05);
+  }
+  50% {
+    opacity: 1;
+    box-shadow: inset 0 0 130px rgba(0, 163, 255, 0.4),
+                inset 0 0 250px rgba(0, 163, 255, 0.15);
+  }
+}
+
+.dark .screen-aura {
+  opacity: 1;
+}
+
+html:not(.dark) .screen-aura {
+  opacity: 0;
 }

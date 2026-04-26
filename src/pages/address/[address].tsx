@@ -6,6 +6,7 @@ import RootLayout from '@/layouts/_root-layout';
 import axios from 'axios';
 import { format } from 'date-fns';
 import Link from 'next/link';
+import { AlgoIcon } from "@/components/icons/algo-icon";
 
 const getTxTypeLabel = (type: string) => {
   switch (type) {
@@ -21,7 +22,7 @@ const getTxTypeLabel = (type: string) => {
 
 const getTxTokenInfo = (tx: any, assetCache: Record<number, { name: string, decimals: number }>) => {
   if (tx['tx-type'] === 'pay') {
-    return { amount: ((tx['payment-transaction']?.amount || 0) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 4 }), token: 'Algo', assetId: 0 };
+    return { amount: ((tx['payment-transaction']?.amount || 0) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 4 }), token: <AlgoIcon />, assetId: 0 };
   } else if (tx['tx-type'] === 'axfer') {
     const assetId = tx['asset-transfer-transaction']?.['asset-id'];
     const cached = assetCache[assetId];
@@ -252,7 +253,7 @@ const AddressDetailPage: NextPageWithLayout = () => {
                 </div>
                 <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-sm border border-blue-100 dark:border-blue-900/50 min-w-[200px] text-center md:text-right">
                    <div className="text-[11px] text-[#1b72e8] dark:text-blue-400 font-semibold uppercase tracking-wider mb-1">ALGO Balance</div>
-                   <div className="text-2xl font-bold text-gray-900 dark:text-white">₳ {((account.amount || 0) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 6})}</div>
+                   <div className="text-2xl font-bold text-gray-900 dark:text-white flex items-center justify-center md:justify-end gap-2">{((account.amount || 0) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 6})} <AlgoIcon /></div>
                 </div>
              </div>
 
@@ -272,11 +273,11 @@ const AddressDetailPage: NextPageWithLayout = () => {
                 </div>
                 <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm p-4">
                    <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Min Balance</div>
-                   <div className="text-gray-800 dark:text-white font-medium">₳ {((account['min-balance'] || 0) / 1e6).toLocaleString()}</div>
+                   <div className="text-gray-800 dark:text-white font-medium flex items-center gap-1">{((account['min-balance'] || 0) / 1e6).toLocaleString()} <AlgoIcon /></div>
                 </div>
                 <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 shadow-sm rounded-sm p-4">
                    <div className="text-[11px] text-gray-500 font-semibold uppercase tracking-wider mb-1">Total Rewards</div>
-                   <div className="text-gray-800 dark:text-white font-medium">₳ {((account.rewards || 0) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 4})}</div>
+                   <div className="text-gray-800 dark:text-white font-medium flex items-center gap-1">{((account.rewards || 0) / 1e6).toLocaleString(undefined, {maximumFractionDigits: 4})} <AlgoIcon /></div>
                 </div>
              </div>
 

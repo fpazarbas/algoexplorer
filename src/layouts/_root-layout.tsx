@@ -1,8 +1,11 @@
 import dynamic from 'next/dynamic';
+import { useState, useEffect } from 'react';
+import cn from 'classnames';
 import { useLayout } from '@/lib/hooks/use-layout';
 import { LAYOUT_OPTIONS } from '@/lib/constants';
 import Loader from '@/components/ui/loader';
 import { useIsMounted } from '@/lib/hooks/use-is-mounted';
+
 // dynamic imports
 const ModernLayout = dynamic(() => import('@/layouts/_modern'), {
   loading: () => <FallbackLoader />,
@@ -20,8 +23,24 @@ export default function RootLayout({
   children,
   contentClassName,
 }: React.PropsWithChildren<{ contentClassName?: string }>) {
-  // render default layout which is modern
+  const [isAuraAnimated, setIsAuraAnimated] = useState(true);
+
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsAuraAnimated(false);
+    }, 2500); // Stop animation after 2.5 seconds
+    return () => clearTimeout(timer);
+  }, []);
+
   return (
-    <ModernLayout contentClassName={contentClassName}>{children}</ModernLayout>
+    <ModernLayout contentClassName={contentClassName}>
+      <div 
+        className={cn(
+          'screen-aura',
+          isAuraAnimated ? 'screen-aura-animated' : 'screen-aura-static'
+        )} 
+      />
+      {children}
+    </ModernLayout>
   );
 }

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import React, { useState, useEffect } from 'react';
 import type { NextPageWithLayout } from '@/types';
 import { NextSeo } from 'next-seo';
 import RootLayout from '@/layouts/_root-layout';
@@ -7,6 +7,7 @@ import axios from 'axios';
 import { format, startOfYear, differenceInMonths, subYears, subMonths } from 'date-fns';
 import { LineChart, Line, ResponsiveContainer, XAxis, YAxis, CartesianGrid, Tooltip } from 'recharts';
 import Link from 'next/link';
+import { AlgoIcon } from "@/components/icons/algo-icon";
 
 const mockChartData = [
   { time: '29 Mar', txs: 40000 },
@@ -32,7 +33,7 @@ const renderAddress = (address: string, nfdCache: Record<string, string>) => {
 
 const getTxTokenInfo = (tx: any, assetCache: Record<number, { name: string, decimals: number }>) => {
   if (tx['tx-type'] === 'pay') {
-    return { amount: ((tx['payment-transaction']?.amount || 0) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 4 }), token: 'Algo', assetId: 0 };
+    return { amount: ((tx['payment-transaction']?.amount || 0) / 1e6).toLocaleString(undefined, { maximumFractionDigits: 4 }), token: <AlgoIcon />, assetId: 0 };
   } else if (tx['tx-type'] === 'axfer') {
     const assetId = tx['asset-transfer-transaction']?.['asset-id'];
     const cached = assetCache[assetId];
@@ -60,6 +61,15 @@ const getTxTypeLabel = (type: string) => {
   }
 };
 
+const getTxTypeColors = (type: string) => {
+  switch (type) {
+    case 'appl': return { label: 'text-purple-400', bg: 'bg-purple-500', border: 'border-purple-700/40' };
+    case 'pay':  return { label: 'text-emerald-400', bg: 'bg-emerald-500', border: 'border-emerald-700/40' };
+    case 'axfer': return { label: 'text-orange-400', bg: 'bg-orange-500', border: 'border-orange-700/40' };
+    default:     return { label: 'text-gray-400',   bg: 'bg-gray-500',   border: 'border-gray-700/40' };
+  }
+};
+
 const ExplorerPage: NextPageWithLayout = () => {
   const [query, setQuery] = useState('');
   const [loading, setLoading] = useState(false);
@@ -83,16 +93,17 @@ const ExplorerPage: NextPageWithLayout = () => {
     tps: 0,
     blockSpeed: 3.3,
     accounts: 34125000,
-    chartData: [] as any[],
     txCost: 0.001,
     recentBlocks: [] as any[]
   });
+  const [chartData, setChartData] = useState<any[]>([]);
 
   const [chartFilter, setChartFilter] = useState('1W');
 
   useEffect(() => {
     let lastWsUpdate = 0;
     let lastHttpUpdate = 0;
+    let prevRound = 0;
     
     const fetchStats = async () => {
       try {
@@ -221,7 +232,7 @@ const ExplorerPage: NextPageWithLayout = () => {
         ));
 
         const tcs = blockRes.map(res => res?.data?.block?.tc || 0);
-        const newChartData = [];
+        const newChartData: any[] = [];
         for (let i = 1; i < tcs.length; i++) {
            if (tcs[i] > 0 && tcs[i-1] > 0) {
               const diff = tcs[i] - tcs[i-1];
@@ -234,7 +245,7 @@ const ExplorerPage: NextPageWithLayout = () => {
         }
         
         if (newChartData.length > 0) {
-           setGlobalStats(prev => ({ ...prev, chartData: newChartData }));
+           setChartData(newChartData);
         }
       } catch (e) {}
     };
@@ -306,10 +317,7 @@ const ExplorerPage: NextPageWithLayout = () => {
     fetchStats();
     fetchTransactions();
     
-    // Refresh chart when filter changes
-    if (globalStats.lastBlock > 0) {
-       fetchChartData(chartFilter, globalStats.lastBlock);
-    }
+    // Chart is handled by its own useEffect below
     
     const statsInterval = setInterval(async () => {
       try {
@@ -371,7 +379,7 @@ const ExplorerPage: NextPageWithLayout = () => {
 
     // WEBSOCKET FOR PRICE (Auto-reconnecting)
     let ws: WebSocket | null = null;
-    let wsReconnectTimer: NodeJS.Timeout;
+    let wsReconnectTimer: any;
 
     const connectWebSocket = () => {
       try {
@@ -459,7 +467,7 @@ const ExplorerPage: NextPageWithLayout = () => {
           ));
 
           const tcs = blockRes.map(res => res?.data?.block?.tc || 0);
-          const newChartData = [];
+          const newChartData: any[] = [];
           for (let i = 1; i < tcs.length; i++) {
              if (tcs[i] > 0 && tcs[i-1] > 0) {
                 const diff = tcs[i] - tcs[i-1];
@@ -484,13 +492,13 @@ const ExplorerPage: NextPageWithLayout = () => {
           }
           
           if (newChartData.length > 0) {
-             setGlobalStats(prev => ({ ...prev, chartData: newChartData }));
+             setChartData(newChartData);
           }
         } catch (e) {}
       };
       fetchChartData(chartFilter, globalStats.lastBlock);
     }
-  }, [chartFilter, globalStats.lastBlock === 0]);
+  }, [chartFilter, globalStats.lastBlock]);
 
   const handleSearch = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -554,19 +562,19 @@ const formatNumber = (num: number) => {
           <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 p-5 shadow-sm rounded-sm">
             <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Circulating Supply <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
             <div className="text-2xl font-light text-gray-800 dark:text-white text-center flex items-center justify-center gap-1">
-              <span className="text-lg">₳</span> {globalStats.circulatingSupply ? formatNumber(globalStats.circulatingSupply) : '...'}
+              {globalStats.circulatingSupply ? formatNumber(globalStats.circulatingSupply) : '...'} <AlgoIcon />
             </div>
           </div>
           <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 p-5 shadow-sm rounded-sm">
             <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Total Supply <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
             <div className="text-2xl font-light text-gray-800 dark:text-white text-center flex items-center justify-center gap-1">
-              <span className="text-lg">₳</span> 10,000,000,000
+              10,000,000,000 <AlgoIcon />
             </div>
           </div>
           <div className="bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-800 p-5 shadow-sm rounded-sm">
             <div className="text-gray-500 text-[11px] font-semibold mb-2 uppercase tracking-wider flex items-center justify-between">Online Stake <span className="bg-gray-100 dark:bg-gray-800 rounded-full w-4 h-4 flex items-center justify-center text-[10px] text-gray-400">i</span></div>
             <div className="text-2xl font-light text-gray-800 dark:text-white text-center flex items-center justify-center gap-1">
-              <span className="text-lg">₳</span> {globalStats.onlineStake ? globalStats.onlineStake.toLocaleString() : '1,866,678,541.31'}
+              {globalStats.onlineStake ? globalStats.onlineStake.toLocaleString() : '1,866,678,541.31'} <AlgoIcon />
             </div>
           </div>
         </div>
@@ -649,7 +657,7 @@ const formatNumber = (num: number) => {
                 <div className="absolute -left-12 top-1/3 -translate-y-1/2 -rotate-90 text-[10px] text-gray-500 font-semibold tracking-wider origin-center z-10 whitespace-nowrap hidden sm:block">Number of Txs</div>
                 <div className="w-full h-full">
                    <ResponsiveContainer width="100%" height="100%">
-                     <LineChart data={globalStats.chartData.length > 0 ? globalStats.chartData : mockChartData} margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
+                     <LineChart data={chartData.length > 0 ? chartData : mockChartData} margin={{ top: 5, right: 20, left: 40, bottom: 5 }}>
                       <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eee" />
                       <XAxis 
                         dataKey="time" 
@@ -688,7 +696,9 @@ const formatNumber = (num: number) => {
                 <div key={block.round || i} className="flex items-center p-4 py-5 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors">
                   <div className="flex flex-col items-center justify-center w-16">
                     <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#8ba5c9" strokeWidth="1.5"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"></path><polyline points="3.27 6.96 12 12.01 20.73 6.96"></polyline><line x1="12" y1="22.08" x2="12" y2="12"></line></svg>
-                    <span className="text-[10px] text-blue-400 mt-1">{block.timestamp ? format(new Date(block.timestamp * 1000), 'ss') : 12 + i * 5} s</span>
+                    <span className="text-[10px] text-blue-400 mt-1">
+                      {block.timestamp ? Math.max(0, Math.floor((Date.now() / 1000) - block.timestamp)) : 12 + i * 5} s
+                    </span>
                   </div>
                   <div className="flex-1 ml-4">
                     <div className="flex items-center text-[13px] mb-1.5">
@@ -719,15 +729,17 @@ const formatNumber = (num: number) => {
                 <div key={tx.id || i} className="flex items-center p-4 py-5 border-b border-gray-100 dark:border-gray-800 last:border-0 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors relative">
                   
                   {/* Left sideways label */}
-                  <div className="absolute left-0 top-0 bottom-0 w-8 border-r border-gray-100 dark:border-gray-800 flex items-center justify-center">
-                    <span className="text-[9px] text-gray-400 uppercase tracking-widest transform -rotate-90 origin-center whitespace-nowrap w-24 text-center">{getTxTypeLabel(tx['tx-type'])}</span>
+                  <div className={`absolute left-0 top-0 bottom-0 w-8 border-r ${getTxTypeColors(tx['tx-type']).border} dark:border-opacity-60 flex items-center justify-center`}>
+                    <span className={`text-[9px] ${getTxTypeColors(tx['tx-type']).label} uppercase tracking-widest transform -rotate-90 origin-center whitespace-nowrap w-24 text-center font-semibold`}>{getTxTypeLabel(tx['tx-type'])}</span>
                   </div>
 
                   <div className="flex flex-col items-center justify-center w-12 ml-8">
-                     <div className="bg-[#1b72e8] rounded-full p-1 text-white">
+                     <div className={`${getTxTypeColors(tx['tx-type']).bg} rounded-full p-1 text-white`}>
                         <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><polyline points="13 17 18 12 13 7"></polyline><line x1="6" y1="12" x2="18" y2="12"></line></svg>
                      </div>
-                     <span className="text-[10px] text-blue-400 mt-1">11 s</span>
+                     <span className="text-[10px] text-blue-400 mt-1">
+                        {tx['round-time'] ? Math.max(0, Math.floor((Date.now() / 1000) - tx['round-time'])) : '11'} s
+                     </span>
                   </div>
                   
                   <div className="flex-1 ml-4 overflow-hidden">
@@ -757,15 +769,17 @@ const formatNumber = (num: number) => {
                                 {renderAddress(tx.sender, nfdCache)}
                              </Link>
                           </div>
-                          <div className="truncate w-24 sm:w-32">
-                             To:{' '}
-                             <Link href={`/address/${tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver}`} className="text-gray-600 dark:text-gray-300 hover:text-[#1b72e8] dark:hover:text-[#1b72e8] hover:underline" title={tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver}>
-                                {renderAddress(tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver, nfdCache)}
-                             </Link>
-                          </div>
+                          {tx['tx-type'] !== 'appl' && (
+                             <div className="truncate w-24 sm:w-32">
+                                To:{' '}
+                                <Link href={`/address/${tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver}`} className="text-gray-600 dark:text-gray-300 hover:text-[#1b72e8] dark:hover:text-[#1b72e8] hover:underline" title={tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver}>
+                                   {renderAddress(tx['payment-transaction']?.receiver || tx['asset-transfer-transaction']?.receiver, nfdCache)}
+                                </Link>
+                             </div>
+                           )}
                        </div>
                        <div className="text-gray-500 font-medium">
-                          Fee: <span className="text-gray-800 dark:text-gray-200 font-bold ml-1">₳ {(tx.fee / 1e6).toFixed(3)}</span>
+                          Fee: <span className="text-gray-800 dark:text-gray-200 font-bold ml-1 flex items-center gap-1">{(tx.fee / 1e6).toFixed(3)} <AlgoIcon /></span>
                        </div>
                     </div>
                   </div>
@@ -782,7 +796,6 @@ const formatNumber = (num: number) => {
     </div>
   );
 };
-
 
 ExplorerPage.getLayout = function getLayout(page: any) {
   return <RootLayout>{page}</RootLayout>;
