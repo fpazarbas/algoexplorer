@@ -171,7 +171,7 @@ export default function Header({ className }: { className?: string }) {
           {/* Search Bar */}
           <div className="hidden md:flex flex-1 items-center ml-2" ref={wrapperRef}>
             <form className="relative w-full" onSubmit={handleSubmit}>
-              <div className="flex items-center w-full h-10 px-3 gap-2 rounded-md border border-gray-700 bg-[#0f1929] focus-within:border-[#1b72e8] transition-all">
+              <div className="flex items-center w-full h-10 px-3 gap-2 rounded-md border border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-[#0f1929] focus-within:border-[#1b72e8] dark:focus-within:border-[#1b72e8] transition-all">
                 <svg className="text-gray-400 shrink-0" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
                 <input
                   type="text"
@@ -190,8 +190,8 @@ export default function Header({ className }: { className?: string }) {
 
               {/* Dropdown */}
               {open && (
-                <div className="absolute top-12 left-0 w-full bg-[#111827] border border-gray-700 rounded-lg shadow-2xl z-50 overflow-hidden">
-                  <div className="px-4 py-2.5 border-b border-gray-700 flex items-center gap-2 text-xs text-gray-400 font-medium">
+                <div className="absolute top-12 left-0 w-full bg-white dark:bg-[#111827] border border-gray-200 dark:border-gray-700 rounded-lg shadow-2xl z-50 overflow-hidden">
+                  <div className="px-4 py-2.5 border-b border-gray-200 dark:border-gray-700 flex items-center gap-2 text-xs text-gray-500 dark:text-gray-400 font-medium">
                     <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
                     Results
                   </div>
@@ -205,14 +205,14 @@ export default function Header({ className }: { className?: string }) {
                         key={r.id}
                         type="button"
                         onClick={() => { setOpen(false); router.push(r.href); }}
-                        className="w-full text-left px-4 py-3 hover:bg-gray-800 transition-colors flex items-start gap-3"
+                        className="w-full text-left px-4 py-3 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-start gap-3"
                       >
                         {r.avatar
                           ? <img src={r.avatar} alt="" className="w-6 h-6 rounded-full shrink-0 mt-0.5 object-cover" onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }} />
                           : <svg className="text-gray-500 mt-0.5 shrink-0" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/></svg>
                         }
                         <div className="min-w-0">
-                          <div className="text-sm text-white font-mono truncate">{r.id}</div>
+                          <div className="text-sm text-gray-900 dark:text-white font-mono truncate">{r.id}</div>
                           <div className="text-xs text-gray-400 mt-0.5 flex items-center gap-1.5">
                             <span className={txTypeColor[r.type] || 'text-gray-400'}>{r.type}</span>
                             {r.block && <><span>|</span><span>Block #{r.block.toLocaleString()}</span></>}

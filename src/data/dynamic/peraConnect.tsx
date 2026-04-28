@@ -7,6 +7,16 @@ import cn from 'classnames';
 import axios from 'axios';
 
 
+// Prevent "Cannot define multiple custom elements with the same tag name"
+// caused by @perawallet/connect re-registering web components on Fast Refresh
+if (typeof window !== 'undefined' && !(window as any).__ceDefinePatched) {
+  const _orig = customElements.define.bind(customElements);
+  customElements.define = function (name: string, ...args: any[]) {
+    if (!customElements.get(name)) _orig(name, ...args);
+  };
+  (window as any).__ceDefinePatched = true;
+}
+
 let walletInstance: PeraWalletConnect;
 
 if (typeof window !== 'undefined') {
@@ -15,8 +25,7 @@ if (typeof window !== 'undefined') {
   }
   walletInstance = (window as any)._peraWalletInstance;
 } else {
-  // SSR fallback
-  walletInstance = new PeraWalletConnect(); 
+  walletInstance = {} as PeraWalletConnect;
 }
 
 export const peraWallet = walletInstance;
